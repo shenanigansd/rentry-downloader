@@ -88,6 +88,7 @@ class PreviewWindow:
         self.window.bind("<Return>", lambda e: self.do_save())
         self.window.bind("<space>", lambda e: self.do_save())
         self.window.bind("<Escape>", lambda e: self.do_reject())
+        self.window.protocol("WM_DELETE_WINDOW", self.do_reject)
 
     def do_save(self):
         dest = asksaveasfilename(confirmoverwrite=True, defaultextension=".md", initialfile=self.file_name)
