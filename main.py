@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import tkinter
 
 from tkinter import *
@@ -15,6 +16,11 @@ import requests, string, re
 
 KEY_PATH = "./api-key.txt"
 USER_AGENT = "Bast-Rentry-Raw-Fetcher/0.3"
+
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 
 class KeyManager:
@@ -36,15 +42,17 @@ class KeyManager:
             return ""
 
         self.api_key = data.removeprefix("api-key:").strip()
-
+        logger.info("Loaded api_key: %s", self.api_key)
         return self.api_key
 
 
     def set_key(self, key: str):
         # Ignore attempt to set key to placeholder value
         if set(key) == set("*"):
+            logger.warning("Refusing to set api key to placeholder asterisks")
             return "*"*len(self.api_key)
 
+        logger.info("Set api_key: %s", self.api_key)
         self.api_key = key.strip()
         self.key_path.write_text("api-key: " + self.api_key)
         return "*"*len(self.api_key)
@@ -87,12 +95,13 @@ class PreviewWindow:
             return
 
         written = Path(dest).write_text(self.data)
-        print("Successful:", written, "bytes written")
+        logger.info("Successfully wrote: %s bytes to %s", written, dest)
         self.main.set_status(f"Saved {written} bytes!")
         self.window.destroy()
         self.main.destroy_preview(self)
 
     def do_reject(self):
+        logger.info("Preview closed without saving")
         self.main.set_status("Rejected")
         self.window.destroy()
         self.main.destroy_preview(self)
@@ -157,13 +166,14 @@ class RentryDownloader:
 
     def do_download(self):
         target_page = self.link_entry.get().strip()
-        print("Do download:", self.key_manager.api_key, target_page)
+        logger.info("Doing download of %s with api_key %s", target_page, self.key_manager.api_key)
 
         parsed = re.fullmatch(r"https?://rentry.co/(\w+)(/raw)?", target_page)
         if not parsed:
             if not set(target_page) - set(string.ascii_letters):
                 parsed_id = target_page
             else:
+                logger.info("Download attempt rejected: invalid/non-rentry url")
                 showerror("URL Invalid", repr(target_page) + " is not a valid rentry url")
                 return
         else:
@@ -174,22 +184,23 @@ class RentryDownloader:
         r = requests.get(to_fetch, headers={"rentry-auth": self.key_manager.api_key, "User-Agent": self.user_agent})
 
         if r.status_code != 200:
+            logger.error("Download failed: rentry returned status code %s for url %s", r.status_code, to_fetch)
             showerror("Rentry returned status code", str(r.status_code) + "for url " + to_fetch)
             return
 
         data = r.text
 
         if len(data.strip()) == 0:
+            logger.error("Download failed: fetched file was empty")
             showerror("Empty download", "The fetched file is empty?")
             return
 
         file_name = self.get_first_line_filename(data) + ".md"
-
+        logger.info("Download successful, showing accept/reject dialog")
         self.show_preview(file_name, data)
 
     def show_preview(self, file_name: str, data: str):
         self.preview_windows.append(PreviewWindow(self, file_name, data))
-
 
     def destroy_preview(self, preview: PreviewWindow):
         """
@@ -223,4 +234,5 @@ class RentryDownloader:
         self.root.mainloop()
 
 
-if __name__ == "__main__":    RentryDownloader(KEY_PATH, USER_AGENT).run()
+if __name__ == "__main__":
+    RentryDownloader(KEY_PATH, USER_AGENT).run()
