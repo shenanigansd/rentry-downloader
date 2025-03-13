@@ -41,8 +41,11 @@ class KeyManager:
 
 
     def set_key(self, key: str):
-        self.api_key = key.strip()
+        # Ignore attempt to set key to placeholder value
+        if set(key) == set("*"):
+            return "*"*len(self.api_key)
 
+        self.api_key = key.strip()
         self.key_path.write_text("api-key: " + self.api_key)
         return "*"*len(self.api_key)
 
