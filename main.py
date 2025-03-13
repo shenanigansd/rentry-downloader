@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import tkinter
 
 from tkinter import *
@@ -11,162 +13,211 @@ from pathlib import Path
 import requests, string, re
 
 
-key_path = Path("./api-key.txt")
-
-USER_AGENT = "Bast-Rentry-Raw-Fetcher/0.2"
-
-
-def load_key():
-    if not key_path.exists():
-        return ""
-
-    data = key_path.read_text()
-    if not data.startswith("api-key:"):
-        if data:
-            showerror("API Key Read Error", "Something invalid is in the api key file!")
-            exit(1)
-
-        return ""
-
-    return data.removeprefix("api-key:").strip()
+KEY_PATH = "./api-key.txt"
+USER_AGENT = "Bast-Rentry-Raw-Fetcher/0.3"
 
 
-def set_key():
-    global api_key
-    key = key_entry_var.get().strip()
-    print(key)
-    api_key = key
-
-    key_path.write_text("api-key: " + key)
-
-    key_entry_var.set("*"*len(key))
+class KeyManager:
+    def __init__(self, key_path: str):
+        self.key_path = Path(key_path)
+        self.api_key = None
 
 
-# Make sure to keep state alive, tkinter is bad about reference counting...
-preview = 0
-previews = {}
+    def load_key(self):
+        if not self.key_path.exists():
+            return ""
 
-def do_download():
-    global preview
-    preview += 1
-    target_page = link_entry.get().strip()
-    print("Do download:", api_key, target_page)
+        data = self.key_path.read_text()
+        if not data.startswith("api-key:"):
+            if data:
+                showerror("API Key Read Error", "Something invalid is in the api key file!")
+                exit(1)
 
-    parsed = re.fullmatch(r"https?://rentry.co/(\w+)(/raw)?", target_page)
-    if not parsed:
-        if not set(target_page) - set(string.ascii_letters):
-            parsed_id = target_page
-        else:
+            return ""
 
-            showerror("URL Invalid", repr(target_page) + " is not a valid rentry url")
-            return
-    else:
-        parsed_id = parsed.group(1)
+        self.api_key = data.removeprefix("api-key:").strip()
 
-    to_fetch = "https://rentry.co/" + parsed_id + "/raw"
-
-    r = requests.get(to_fetch, headers={"rentry-auth": api_key, "User-Agent": USER_AGENT})
-
-    if r.status_code != 200:
-        showerror("Rentry returned status code", str(r.status_code) + "for url " + to_fetch)
-        return
-
-    data = r.text
-
-    if len(data.strip()) == 0:
-        showerror("Empty download", "The fetched file is empty?")
-        return
-
-    file_name = get_first_line_filename(data) + ".md"
+        return self.api_key
 
 
-    preview_window = Toplevel(root, takefocus=True)
-    preview_window.title("Preview of " + file_name)
-    preview_frame = Frame(preview_window)
-    preview_frame.pack()
-    preview_text = Text(preview_frame)
-    preview_text.pack()
-    preview_text.insert("1.0", data[:2000])
-    preview_text.config(state="disabled")
+    def set_key(self, key: str):
+        self.api_key = key.strip()
 
-    def do_save():
-        dest = asksaveasfilename(confirmoverwrite=True, defaultextension=".md", initialfile=file_name)
+        self.key_path.write_text("api-key: " + self.api_key)
+        return "*"*len(self.api_key)
+
+
+class PreviewWindow:
+    def __init__(self, main: RentryDownloader, file_name: str, data: str):
+        self.root = main.root
+        self.file_name = file_name
+        self.data = data
+        self.main = main
+        self.init_gui()
+
+    def init_gui(self):
+        self.window = Toplevel(self.root, takefocus=True)
+        self.window.title("Preview of " + self.file_name)
+
+        self.frame = Frame(self.window)
+        self.frame.pack()
+
+        self.text = Text(self.frame)
+        self.text.pack()
+        self.text.insert("1.0", self.preview_data())
+        self.text.config(state="disabled")
+
+        self.reject_button = Button(self.frame, text="Reject", command=self.do_reject)
+        self.reject_button.pack()
+
+        self.save_button = Button(self.frame, state="active", text="Save", command=self.do_save)
+        self.save_button.pack()
+        self.save_button.focus_set()
+
+        self.window.bind("<Return>", lambda e: self.do_save())
+        self.window.bind("<space>", lambda e: self.do_save())
+        self.window.bind("<Escape>", lambda e: self.do_reject())
+
+    def do_save(self):
+        dest = asksaveasfilename(confirmoverwrite=True, defaultextension=".md", initialfile=self.file_name)
         if not dest:
             return
 
-        written = Path(dest).write_text(data)
+        written = Path(dest).write_text(self.data)
         print("Successful:", written, "bytes written")
-        status_var.set(f"Saved {written} bytes!")
-        preview_window.destroy()
-        del previews[preview]
+        self.main.set_status(f"Saved {written} bytes!")
+        self.window.destroy()
+        self.main.destroy_preview(self)
 
-    def do_reject():
-        status_var.set("Rejected")
-        preview_window.destroy()
-        del previews[preview]
+    def do_reject(self):
+        self.main.set_status("Rejected")
+        self.window.destroy()
+        self.main.destroy_preview(self)
 
-    reject_button = Button(preview_frame, text="Reject", command=do_reject)
-    reject_button.pack()
-    save_button = Button(preview_frame, state="active", text="Save", command=do_save)
-    save_button.pack()
-    save_button.focus_set()
+    def preview_data(self):
+        return self.data[:2000]
 
-    preview_window.bind("<Return>", lambda e: do_save())
-    preview_window.bind("<space>", lambda e: do_save())
-    preview_window.bind("<Escape>", lambda e: do_reject())
-    previews[preview] = [preview_window, preview_frame, preview_text, reject_button, save_button]
 
-def get_first_line_filename(file_content: str) -> str:
+class RentryDownloader:
     GOOD_CHARS = string.ascii_letters + string.digits
-    # Characters that can't be on either end
-    PERMISSIBLE_CHARS = "-_. "
+    PERMISSIBLE_CHARS = "-_. "  # Characters that can't be on either end of a filename
     VALID_CHARS = GOOD_CHARS + PERMISSIBLE_CHARS
 
-    for line in file_content.splitlines(False):
-        if not line.strip():
-            continue
+    def __init__(self, key_path: str, user_agent: str):
+        self.key_manager = KeyManager(key_path)
+        self.user_agent = user_agent
+        self.init_gui()
+        self.preview_windows = []
 
-        valid_chars = [i for i in line if i in GOOD_CHARS]
+    def init_gui(self):
+        self.root = Tk()
+        self.root.title("Rentry Downloader")
+        # root.geometry("300x300")
 
-        if len(valid_chars) < 2:
-            continue
+        self.frame = Frame(self.root, padding=10, width=400, height=600)
+        self.frame.grid()
 
-        filename = ''.join(i if i in VALID_CHARS else "_" for i in line).strip(PERMISSIBLE_CHARS)
-        return filename
+        self.paste_label = Label(self.frame, text="Paste:", justify="left")
+        self.paste_label.grid(column=0, row=0)
+
+        self.link_entry = Entry(self.frame)
+        self.link_entry.grid(column=0, row=1)
+        self.link_entry.bind("<Return>", lambda e: self.do_download())
+
+        self.status_var = StringVar()
+        self.status_var.set("ready")
+
+        self.status_label = Label(self.frame, textvariable=self.status_var, justify="left")
+        self.status_label.grid(column=0, row=2)
+
+        self.api_key_label = Label(self.frame, text="API Key:", justify="left")
+        self.api_key_label.grid(column=0, row=3)
+
+        self.key_entry_var = StringVar()
+        self.key_entry_var.set("*"*len(self.key_manager.load_key()))
+
+        self.key_entry = Entry(self.frame, textvariable=self.key_entry_var)
+        self.key_entry.grid(column=0, row=4)
+        self.key_entry.bind("<Return>", lambda e: self.set_key())
+
+        self.lock_button = Button(self.frame, text="🔒", command=self.set_key)
+        self.lock_button.grid(column=1, row=4)
+
+        self.download_button = Button(self.frame, text="Download Raw", command=self.do_download)
+        self.download_button.grid(column=0, row=6)
+
+    def set_status(self, status: str):
+        self.status_var.set(status)
+
+    def set_key(self):
+        self.key_entry_var.set(self.key_manager.set_key(self.key_entry_var.get()))
+
+    def do_download(self):
+        target_page = self.link_entry.get().strip()
+        print("Do download:", self.key_manager.api_key, target_page)
+
+        parsed = re.fullmatch(r"https?://rentry.co/(\w+)(/raw)?", target_page)
+        if not parsed:
+            if not set(target_page) - set(string.ascii_letters):
+                parsed_id = target_page
+            else:
+                showerror("URL Invalid", repr(target_page) + " is not a valid rentry url")
+                return
+        else:
+            parsed_id = parsed.group(1)
+
+        to_fetch = "https://rentry.co/" + parsed_id + "/raw"
+
+        r = requests.get(to_fetch, headers={"rentry-auth": self.key_manager.api_key, "User-Agent": self.user_agent})
+
+        if r.status_code != 200:
+            showerror("Rentry returned status code", str(r.status_code) + "for url " + to_fetch)
+            return
+
+        data = r.text
+
+        if len(data.strip()) == 0:
+            showerror("Empty download", "The fetched file is empty?")
+            return
+
+        file_name = self.get_first_line_filename(data) + ".md"
+
+        self.show_preview(file_name, data)
+
+    def show_preview(self, file_name: str, data: str):
+        self.preview_windows.append(PreviewWindow(self, file_name, data))
 
 
-api_key = load_key()
+    def destroy_preview(self, preview: PreviewWindow):
+        """
+        Deallocate a preview window
+
+        This is needed because tkinter doesn't reference-count/keepalive some objects if the python
+        references get garbage collected, so we ensure a root-to-leaf tether until the preview
+        is no longer neccessary.
+        """
+        self.preview_windows.remove(preview)
+
+    def get_first_line_filename(self, file_content: str) -> str:
+        """
+        Generate a filename from the beginning of the file's content
+        """
+        for line in file_content.splitlines(False):
+            if not line.strip():
+                continue
+
+            valid_chars = [i for i in line if i in self.GOOD_CHARS]
+
+            if len(valid_chars) < 2:
+                continue
+
+            filename = ''.join(i if i in self.VALID_CHARS else "_" for i in line).strip(self.PERMISSIBLE_CHARS)
+            return filename
+
+        return "untitled"
+
+    def run(self):
+        self.root.mainloop()
 
 
-root = Tk()
-root.title("Rentry Downloader")
-# root.geometry("300x300")
-
-frame = Frame(root, padding=10, width=400, height=600)
-frame.grid()
-
-Label(frame, text="Paste:", justify="left").grid(column=0, row=0)
-link_entry = Entry(frame)
-link_entry.grid(column=0, row=1)
-
-
-status_var = StringVar()
-status_var.set("ready")
-Label(frame, textvariable=status_var, justify="left").grid(column=0, row=2)
-
-Label(frame, text="API Key:", justify="left").grid(column=0, row=3)
-key_entry_var = StringVar()
-key_entry_var.set("*"*len(api_key))
-
-
-key_entry = Entry(frame, textvariable=key_entry_var)
-key_entry.grid(column=0, row=4)
-
-Button(frame, text="🔒", command=set_key).grid(column=1, row=4)
-key_entry.bind("<Return>", lambda e: set_key())
-
-
-Button(frame, text="Download Raw", command=do_download).grid(column=0, row=6)
-link_entry.bind("<Return>", lambda e: do_download())
-
-root.mainloop()
+if __name__ == "__main__":    RentryDownloader(KEY_PATH, USER_AGENT).run()
