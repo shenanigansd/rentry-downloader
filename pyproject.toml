@@ -1,0 +1,9 @@
+[project]
+name = "rentry-archiver"
+version = "0.3"
+
+# TKinter is also required, but can't be specified here
+dependencies = [
+    "requests >= 2",
+    "platformdirs >= 4",
+]

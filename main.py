@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
-import tkinter
+import string
+import re
+
+from pathlib import Path
 
 from tkinter import *
 
@@ -9,12 +12,12 @@ from tkinter.messagebox import showerror
 from tkinter.filedialog import asksaveasfilename
 from tkinter.ttk import *
 
-from pathlib import Path
+import platformdirs
+import requests
 
-import requests, string, re
 
 
-KEY_PATH = "./api-key.txt"
+KEY_PATH = Path(platformdirs.user_data_dir("RentryArchiver", "Bast")) / "api-key.txt"
 USER_AGENT = "Bast-Rentry-Raw-Fetcher/0.3"
 
 
@@ -24,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 
 class KeyManager:
-    def __init__(self, key_path: str):
-        self.key_path = Path(key_path)
+    def __init__(self, key_path: Path):
+        self.key_path = key_path
         self.api_key = None
 
 
@@ -52,8 +55,10 @@ class KeyManager:
             logger.warning("Refusing to set api key to placeholder asterisks")
             return "*"*len(self.api_key)
 
-        logger.info("Set api_key: %s", self.api_key)
+        logger.info("Set api_key: %s to %s", self.api_key, key)
         self.api_key = key.strip()
+
+        self.key_path.parent.mkdir(exist_ok=True, parents=True)
         self.key_path.write_text("api-key: " + self.api_key)
         return "*"*len(self.api_key)
 
@@ -116,7 +121,7 @@ class RentryDownloader:
     PERMISSIBLE_CHARS = "-_. "  # Characters that can't be on either end of a filename
     VALID_CHARS = GOOD_CHARS + PERMISSIBLE_CHARS
 
-    def __init__(self, key_path: str, user_agent: str):
+    def __init__(self, key_path: Path, user_agent: str):
         self.key_manager = KeyManager(key_path)
         self.user_agent = user_agent
         self.init_gui()
