@@ -75,6 +75,7 @@ jobs:
         with:
           pattern: RentryArchiver-*
           path: dist/
+          merge-multiple: true
 
       - name: Validate build
         run: ls -R dist
