@@ -44,13 +44,11 @@ jobs:
       - name: Validate build
         run: ls -R dist
 
-      # Zip on Windows
       - name: Zip artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: Compress-Archive -Path dist\* -DestinationPath RentryArchiver-${{ github.ref_name }}-${{ matrix.os }}.zip
 
-      # Zip on Linux/macOS
       - name: Zip artifact (Unix)
         if: runner.os != 'Windows'
         run: |
