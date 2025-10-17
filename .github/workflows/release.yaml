@@ -77,10 +77,7 @@ jobs:
           path: dist/
           merge-multiple: true
 
-      - name: Validate build
-        run: ls -R dist
-
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/**
+          files: dist/*.zip
