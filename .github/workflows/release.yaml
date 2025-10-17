@@ -76,6 +76,9 @@ jobs:
           pattern: RentryArchiver-*
           path: dist/
 
+      - name: Validate build
+        run: ls -R dist
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
