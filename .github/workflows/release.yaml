@@ -44,11 +44,24 @@ jobs:
       - name: Validate build
         run: ls -R dist
 
+      # Zip on Windows
+      - name: Zip artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist\* -DestinationPath RentryArchiver-${{ github.ref_name }}-${{ matrix.os }}.zip
+
+      # Zip on Linux/macOS
+      - name: Zip artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd dist
+          zip -r ../RentryArchiver-${{ github.ref_name }}-${{ matrix.os }}.zip *
+
       - name: ${{ matrix.os }} package
         uses: actions/upload-artifact@v4
         with:
-          name: RentryArchiver-${{ env.GITHUB_REF_NAME }}-${{ matrix.os }}
-          path: dist/
+          name: RentryArchiver-${{ github.ref_name }}-${{ matrix.os }}
+          path: RentryArchiver-${{ github.ref_name }}-${{ matrix.os }}.zip
           if-no-files-found: error
 
   release:
@@ -64,9 +77,8 @@ jobs:
         with:
           pattern: RentryArchiver-*
           path: dist/
-          merge-multiple: true
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/**
+          files: dist/*.zip
